@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from engine import black_scholes_pricing, implied_volatility, option_price_grid, pnl_at_expiration
+from engine import black_scholes_pricing, greek_surface_grid, implied_volatility, option_price_grid, pnl_at_expiration
 
 try:
     import yfinance as yf
@@ -98,6 +98,32 @@ def _build_pnl_chart(stock_prices: np.ndarray, call_pnl: np.ndarray, put_pnl: np
     return fig
 
 
+def _build_greek_surface(data: pd.DataFrame, title: str, colorscale: str, z_label: str) -> go.Figure:
+    fig = go.Figure(
+        data=[
+            go.Surface(
+                z=data.values,
+                x=data.columns.tolist(),
+                y=(data.index * 100).round(2).tolist(),
+                colorscale=colorscale,
+                colorbar={"title": z_label},
+                hovertemplate="Spot: %{x}<br>Volatility: %{y}%<br>Value: %{z:.4f}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=title,
+        scene={
+            "xaxis_title": "Spot Price",
+            "yaxis_title": "Volatility (%)",
+            "zaxis_title": z_label,
+            "camera": {"eye": {"x": 1.5, "y": 1.4, "z": 0.9}},
+        },
+        margin={"l": 10, "r": 10, "t": 50, "b": 10},
+    )
+    return fig
+
+
 st.title("Black-Scholes Option Pricing Dashboard")
 st.caption("Interactive pricing, Greeks, volatility sensitivity, payoff analysis, and implied volatility.")
 
@@ -148,8 +174,8 @@ call_col.metric("Call Price", f"{result.call.price:.4f}")
 put_col.metric("Put Price", f"{result.put.price:.4f}")
 meta_col.metric("Time To Maturity", f"{maturity:.3f} years")
 
-overview_tab, heatmap_tab, pnl_tab, iv_tab = st.tabs(
-    ["Overview", "Sensitivity Heatmaps", "P&L Curves", "Implied Volatility"]
+overview_tab, heatmap_tab, greek_3d_tab, pnl_tab, iv_tab = st.tabs(
+    ["Overview", "Sensitivity Heatmaps", "3D Greeks", "P&L Curves", "Implied Volatility"]
 )
 
 with overview_tab:
@@ -226,6 +252,64 @@ with heatmap_tab:
     )
     put_heatmap_col.plotly_chart(
         _build_heatmap(put_grid, "Put Price Heatmap", "Reds"),
+        width="stretch",
+    )
+
+with greek_3d_tab:
+    greek_labels = {
+        "delta": "Delta",
+        "gamma": "Gamma",
+        "theta": "Theta",
+        "vega": "Vega",
+        "rho": "Rho",
+    }
+    selected_greek = st.selectbox(
+        "Greek Metric",
+        options=list(greek_labels.keys()),
+        format_func=lambda key: greek_labels[key],
+    )
+
+    call_surface = greek_surface_grid(
+        strike=strike,
+        maturity=maturity,
+        rate=rate,
+        base_spot=spot,
+        base_volatility=volatility,
+        greek=selected_greek,
+        option_type="call",
+        spot_points=heatmap_points,
+        volatility_points=heatmap_points,
+    )
+    put_surface = greek_surface_grid(
+        strike=strike,
+        maturity=maturity,
+        rate=rate,
+        base_spot=spot,
+        base_volatility=volatility,
+        greek=selected_greek,
+        option_type="put",
+        spot_points=heatmap_points,
+        volatility_points=heatmap_points,
+    )
+
+    st.caption("These surfaces show how each Greek changes jointly with spot price and implied volatility.")
+    call_surface_col, put_surface_col = st.columns(2)
+    call_surface_col.plotly_chart(
+        _build_greek_surface(
+            call_surface,
+            f"Call {greek_labels[selected_greek]} Surface",
+            "Viridis",
+            greek_labels[selected_greek],
+        ),
+        width="stretch",
+    )
+    put_surface_col.plotly_chart(
+        _build_greek_surface(
+            put_surface,
+            f"Put {greek_labels[selected_greek]} Surface",
+            "Plasma",
+            greek_labels[selected_greek],
+        ),
         width="stretch",
     )
 

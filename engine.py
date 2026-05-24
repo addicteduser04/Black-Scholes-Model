@@ -177,6 +177,53 @@ def option_price_grid(
     )
 
 
+def greek_surface_grid(
+    strike: float,
+    maturity: float,
+    rate: float,
+    base_spot: float,
+    base_volatility: float,
+    greek: str,
+    option_type: str = "call",
+    spot_points: int = 21,
+    volatility_points: int = 21,
+    spot_min_factor: float = 0.8,
+    spot_max_factor: float = 1.2,
+    vol_min_factor: float = 0.5,
+    vol_max_factor: float = 1.5,
+) -> pd.DataFrame:
+    if spot_points < 2 or volatility_points < 2:
+        raise ValueError("Surface requires at least two points on each axis.")
+
+    option_key = option_type.lower()
+    if option_key not in {"call", "put"}:
+        raise ValueError("option_type must be 'call' or 'put'.")
+
+    greek_key = greek.lower()
+    valid_greeks = {"delta", "gamma", "theta", "vega", "rho"}
+    if greek_key not in valid_greeks:
+        raise ValueError(f"greek must be one of: {', '.join(sorted(valid_greeks))}.")
+
+    spot_values = np.linspace(base_spot * spot_min_factor, base_spot * spot_max_factor, spot_points)
+    vol_floor = max(base_volatility * vol_min_factor, 0.01)
+    vol_values = np.linspace(vol_floor, base_volatility * vol_max_factor, volatility_points)
+
+    data = []
+    for volatility in vol_values:
+        row = []
+        for spot in spot_values:
+            result = black_scholes_pricing(spot, strike, maturity, rate, float(volatility))
+            metrics = result.call if option_key == "call" else result.put
+            row.append(getattr(metrics, greek_key))
+        data.append(row)
+
+    return pd.DataFrame(
+        data=np.array(data),
+        index=np.round(vol_values, 4),
+        columns=np.round(spot_values, 2),
+    )
+
+
 def pnl_at_expiration(stock_prices: np.ndarray, strike: float, premium: float, option_type: str = "call") -> np.ndarray:
     option_key = option_type.lower()
     if option_key == "call":
